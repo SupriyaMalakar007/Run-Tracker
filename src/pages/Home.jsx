@@ -5,11 +5,13 @@ import { useRuns } from "../Context/RunContext";
 
 function getStartOfWeek() {
   const now = new Date();
-  const day = now.getDay(); // 0 = Sunday
-  const diffToMonday = (day + 6) % 7; // days since Monday
+  const day = now.getDay();
+  const diffToMonday = (day + 6) % 7;
+
   const start = new Date(now);
   start.setDate(now.getDate() - diffToMonday);
   start.setHours(0, 0, 0, 0);
+
   return start;
 }
 
@@ -29,24 +31,32 @@ export default function HomePage() {
     <>
       <div className="px-7 pt-14">
 
-        <p className="text-gray-500 text-lg">
-          Good evening
-        </p>
+        {/* Logo */}
+        <div className="flex items-center gap-3">
+          <span className="text-5xl">🏃</span>
 
-        <h1 className="uppercase text-white text-6xl leading-none mt-2 font-bold tracking-tight">
-          Ready
-          <br />
-          to Run?
-        </h1>
+          <div>
+            <h1 className="text-white text-4xl font-bold">
+              RunTracker
+            </h1>
 
+            <p className="text-gray-500">
+              Track your running progress
+            </p>
+          </div>
+        </div>
+
+        {/* Start Button */}
         <button
-          onClick={() => navigate("/track")}
+          onClick={() => navigate("/track")}onClick={() =>navigate("/track", {state: { autoStart: true },})
+}
           className="mt-10 w-full h-16 rounded-3xl bg-lime-400 text-black font-bold text-xl flex justify-center items-center gap-3"
         >
           <Play fill="black" size={22} />
-          Start a run
+          Start Run
         </button>
 
+        {/* Stats */}
         <div className="grid grid-cols-2 gap-4 mt-8">
 
           <div className="bg-[#17171B] rounded-3xl p-5">
@@ -74,6 +84,7 @@ export default function HomePage() {
 
         </div>
 
+        {/* Last Run */}
         {lastRun && (
           <>
             <div className="flex justify-between items-center mt-10">

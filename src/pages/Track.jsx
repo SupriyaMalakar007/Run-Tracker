@@ -1,8 +1,6 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation as useRouterLocation } from "react-router-dom";
 import BottomNav from "../components/BottomNav";
-import RunMap from "../components/RunMap";
-import GPSPermission from "../components/GPSPermission";
 
 import {
   Play,
@@ -19,9 +17,9 @@ import { useRuns } from "../Context/RunContext";
 export default function Track() {
   const { addRun } = useRuns();
   const navigate = useNavigate();
-
+  const routerLocation = useRouterLocation();
   // screen: "permission" | "running" | "finished"
-  const [screen, setScreen] = useState("permission");
+  const [screen, setScreen] = useState("running");
 
   const [running, setRunning] = useState(false);
   const [paused, setPaused] = useState(false);
@@ -29,11 +27,8 @@ export default function Track() {
   const [distance, setDistance] = useState(0);
   const [lastLocation, setLastLocation] = useState(null);
   const [route, setRoute] = useState([]);
-  const [isSimulated, setIsSimulated] = useState(false);
-
   const { location, error, startTracking, stopTracking } = useLocation();
 
-  // ---------- Timer ----------
   useEffect(() => {
     let timer;
 
@@ -46,14 +41,17 @@ export default function Track() {
     return () => clearInterval(timer);
   }, [running, paused]);
 
-  // Below this, coordinate changes are almost certainly GPS drift/jitter
-  // rather than real movement (phone GPS commonly wobbles 3-15m at rest;
-  // laptops/indoor Wi-Fi positioning can be far worse).
   const MIN_MOVEMENT_KM = 0.005; // 5 meters, floor for the best-case accuracy
 
-  // ---------- GPS tracking / distance calc ----------
   useEffect(() => {
-    if (isSimulated || !location || paused || screen !== "running") return;
+  if (routerLocation.state?.autoStart) {
+    allowGPS();
+  }
+}, []);
+
+  useEffect(() => {
+    console.log("New GPS location:", location);
+    if (!location || paused || screen !== "running") return;
 
     if (!lastLocation) {
       setLastLocation(location);
@@ -67,10 +65,6 @@ export default function Track() {
       location.lat,
       location.lng
     );
-
-    // Scale the "is this real movement" threshold to the device's own
-    // reported accuracy, instead of throwing the fix away outright.
-    // A fix with poor accuracy just needs a bigger jump to count as motion.
     const accuracyKm = (location.accuracy || 0) / 1000;
     const requiredMovement = Math.max(MIN_MOVEMENT_KM, accuracyKm * 0.75);
 
@@ -81,33 +75,6 @@ export default function Track() {
     setRoute((prev) => [...prev, location]);
   }, [location, paused, screen]);
 
-  // ---------- Simulated run movement ----------
-  useEffect(() => {
-    if (!isSimulated || paused || screen !== "running") return;
-
-    const interval = setInterval(() => {
-      setLastLocation((prevLast) => {
-        const base = prevLast || { lat: 22.5726, lng: 88.3639 }; // Kolkata fallback
-
-        // Small random walk, roughly 5-12 meters per tick.
-        const next = {
-          lat: base.lat + (Math.random() - 0.3) * 0.0001,
-          lng: base.lng + (Math.random() - 0.3) * 0.0001,
-        };
-
-        const d = haversineDistance(base.lat, base.lng, next.lat, next.lng);
-
-        setDistance((prevDist) => prevDist + d);
-        setRoute((prevRoute) => [...prevRoute, next]);
-
-        return next;
-      });
-    }, 1500);
-
-    return () => clearInterval(interval);
-  }, [isSimulated, paused, screen]);
-
-  // ---------- Helpers ----------
   function formatTime(totalSeconds = seconds) {
     const hrs = Math.floor(totalSeconds / 3600);
     const mins = Math.floor((totalSeconds % 3600) / 60);
@@ -133,33 +100,14 @@ export default function Track() {
     setDistance(0);
     setLastLocation(null);
     setRoute([]);
-    setIsSimulated(false);
   }
 
-  // ---------- Screen transitions ----------
   function allowGPS() {
-    setIsSimulated(false);
-    startTracking();
-    setRunning(true);
-    setPaused(false);
-    setScreen("running");
-  }
-
-  function startSimulation() {
-    setIsSimulated(true);
-    setRunning(true);
-    setPaused(false);
-    setScreen("running");
-  }
-
-  // Lets the person bail into a simulated run mid-session, without
-  // losing the elapsed time, if real GPS never gets a fix.
-  function switchToSimulated() {
-    stopTracking();
-    setLastLocation(null);
-    setIsSimulated(true);
-  }
-
+  startTracking();
+  setRunning(true);
+  setPaused(false);
+  setScreen("running");
+}
   function finishRun() {
     stopTracking();
     setRunning(false);
@@ -186,19 +134,10 @@ export default function Track() {
   function discardRun() {
     stopTracking();
     resetRunState();
-    setScreen("permission");
+    navigate("/");
   }
-
-  // ---------- Render ----------
   return (
     <>
-      {screen === "permission" && (
-        <GPSPermission
-          onAllowGPS={allowGPS}
-          onSimulatedRun={startSimulation}
-        />
-      )}
-
       {screen === "running" && (
         <div className="relative h-full">
           <div className="h-full overflow-y-auto px-6 pt-10 pb-40">
@@ -209,43 +148,6 @@ export default function Track() {
             <h1 className="text-center text-white text-2xl font-bold mt-3">
               {formatTime()}
             </h1>
-
-            <div className="mt-6">
-              <RunMap route={route} />
-            </div>
-
-            {!isSimulated && route.length < 2 && (
-              <div className="mt-4 bg-[#17171B] rounded-2xl p-4">
-                {error ? (
-                  <>
-                    <p className="text-red-400 text-sm font-semibold">
-                      {error}
-                    </p>
-                    <p className="text-gray-500 text-sm mt-1">
-                      Check that location access is allowed for this site,
-                      or continue without GPS.
-                    </p>
-                  </>
-                ) : (
-                  <p className="text-gray-500 text-sm">
-                    Waiting for a GPS signal
-                    {seconds > 6 ? " — this is taking longer than usual." : "..."}
-                    {location?.accuracy != null && (
-                      <> (accuracy: ~{Math.round(location.accuracy)}m)</>
-                    )}
-                  </p>
-                )}
-
-                {seconds > 6 && (
-                  <button
-                    onClick={switchToSimulated}
-                    className="mt-3 w-full h-11 rounded-2xl bg-[#232328] text-gray-200 font-semibold text-sm"
-                  >
-                    Continue without GPS
-                  </button>
-                )}
-              </div>
-            )}
 
             <div className="grid grid-cols-2 gap-4 mt-6">
               <div className="bg-[#17171B] rounded-3xl p-5">
@@ -306,10 +208,6 @@ export default function Track() {
             <h1 className="text-center text-white text-5xl font-bold mt-3">
               {formatTime()}
             </h1>
-
-            <div className="mt-6">
-              <RunMap route={route} />
-            </div>
 
             <div className="grid grid-cols-2 gap-4 mt-6">
               <div className="bg-[#17171B] rounded-3xl p-5">
